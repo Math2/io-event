@@ -381,7 +381,7 @@ Selector = Sus::Shared("a selector") do
 		end
 		
 		it "can stop reading when reads are ready" do
-			# This could trigger a busy-loop in the KQueue selector.
+			# This attempts to check that the selector is not busy-looping for fibers that stop waiting on an event that is still being triggered.
 			return unless selector.respond_to?(:io_read)
 			
 			fiber = Fiber.new do
@@ -398,7 +398,10 @@ Selector = Sus::Shared("a selector") do
 			
 			remote.write(message)
 			
-			10.times do
+			# As part of an optimization, some selectors will wait until the next iteration to stop polling for events.
+			selector.select(0)
+			# ...but now they should have stopped polling.
+			5.times do
 				expect(selector.select(0)).to be == 0
 			end
 		end

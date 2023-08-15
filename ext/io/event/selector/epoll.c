@@ -748,6 +748,9 @@ void IO_Event_Selector_EPoll_handle(struct IO_Event_Selector_EPoll *selector, co
 	// This is the mask of all events that occured for the given descriptor:
 	enum IO_Event io_event = events_from_epoll_flags(event->events);
 	
+	// This is the mask of all events that we will still be polling for next.
+	enum IO_Event waiting_events = 0;
+	
 	struct IO_Event_Selector_EPoll_Descriptor *epoll_descriptor = IO_Event_Selector_EPoll_Descriptor_lookup(selector, descriptor);
 	struct IO_Event_List *list = &epoll_descriptor->list;
 	struct IO_Event_List *node = list->tail;
@@ -762,6 +765,9 @@ void IO_Event_Selector_EPoll_handle(struct IO_Event_Selector_EPoll *selector, co
 		if (DEBUG) fprintf(stderr, "IO_Event_Selector_EPoll_handle: descriptor=%d, events=%d, matching_events=%d\n", descriptor, io_event, matching_events);
 		
 		if (matching_events) {
+			// As an optimization, assume that fibers that were waiting on a certain event are likely to wait on it once more.  If the assumption turns out to be false, we'll stop polling next time.
+			waiting_events |= waiting->events;
+			
 			IO_Event_List_append(node, &saved);
 			
 			VALUE argument = RB_INT2NUM(matching_events);
@@ -774,9 +780,7 @@ void IO_Event_Selector_EPoll_handle(struct IO_Event_Selector_EPoll *selector, co
 		}
 	}
 	
-	// Now that fibers have had a chance to change what events they are waiting on, gather the new union set of events we should be waiting on next for this descriptor.
-	enum IO_Event waiting_events = 0;
-	
+	// Now that fibers have had a chance to change what events they are waiting on, merge them all in.
 	for (node = list->tail; node != list; node = node->tail) {
 		struct IO_Event_Selector_EPoll_Waiting *waiting = (struct IO_Event_Selector_EPoll_Waiting *)node;
 		waiting_events |= waiting->events;
